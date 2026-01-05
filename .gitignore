@@ -1,0 +1,59 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Other
+.python_packages/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# UV
+.uv/
+
+# Azure Functions
+local.settings.json
+.vscode/
+__blobstorage__/
+__queuestorage__/
+__azurite_db*__.json
+
+# Terraform
+terraform/.terraform/
+terraform/.terraform.lock.hcl
+terraform/terraform.tfstate
+terraform/terraform.tfstate.backup
+terraform/tfplan
+terraform/tfplan-refresh
+*.tfvars
+
+# Environment
+.env
+.env.local
+
+# IDE
+.idea/
+.DS_Store
+*.swp
+*.swo

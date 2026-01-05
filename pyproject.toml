@@ -1,0 +1,15 @@
+[project]
+name = "video-summarization"
+version = "0.1.0"
+description = "Audio transcription and AI agent integration pipeline"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "azure-functions>=1.20.0",
+    "azure-storage-blob>=12.19.0",
+    "azure-cognitiveservices-speech>=1.38.0",
+    "azure-ai-projects>=1.0.0b1",
+    "azure-identity>=1.16.0",
+    "python-dotenv>=1.0.0",
+    "requests>=2.31.0",
+]
