@@ -324,7 +324,7 @@ def transcript_blob_trigger(transcriptBlob: func.InputStream):
                 agent = project_client.agents.create_agent(
                     model="gpt-4o-mini",
                     name=agent_name,
-                    instructions=f"You are a helpful assistant that answers questions about transcripts related to the topic: {topic}. "
+                    instructions=f"You are a helpful assistant that answers questions about the attached file. "
                                 f"Use the provided transcript files to answer user questions accurately and cite specific parts of the transcript when relevant.",
                     tools=file_search.definitions,
                     tool_resources=file_search.resources
