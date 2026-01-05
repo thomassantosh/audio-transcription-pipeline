@@ -22,6 +22,7 @@ RESOURCE_GROUP=$(terraform output -raw resource_group)
 # Storage Account outputs
 STORAGE_ACCOUNT=$(terraform output -raw storage_account)
 STORAGE_CONN_STRING=$(terraform output -raw storage_conn_string)
+STORAGE_ACCOUNT_KEY=$(terraform output -raw storage_account_key)
 
 # Speech Service outputs
 SPEECH_KEY=$(terraform output -raw speech_key)
@@ -29,6 +30,7 @@ SPEECH_REGION=$(terraform output -raw speech_region)
 SPEECH_ENDPOINT=$(terraform output -raw speech_endpoint)
 
 # AI Foundry outputs
+AI_SERVICES_ENDPOINT=$(terraform output -raw ai_services_endpoint)
 AI_FOUNDRY_ENDPOINT=$(terraform output -raw ai_foundry_endpoint)
 
 # Function App outputs
@@ -51,7 +53,8 @@ cat > $ENV_FILE <<EOF
 RESOURCE_GROUP=$RESOURCE_GROUP
 
 # Storage Account Configuration
-STORAGE_ACCOUNT=$STORAGE_ACCOUNT
+STORAGE_ACCOUNT_NAME=$STORAGE_ACCOUNT
+STORAGE_ACCOUNT_KEY=$STORAGE_ACCOUNT_KEY
 STORAGE_CONN_STRING=$STORAGE_CONN_STRING
 
 # Azure Speech Service Configuration
@@ -60,6 +63,7 @@ SPEECH_REGION=$SPEECH_REGION
 SPEECH_ENDPOINT=$SPEECH_ENDPOINT
 
 # Azure AI Foundry Configuration
+AI_SERVICES_ENDPOINT=$AI_SERVICES_ENDPOINT
 AI_FOUNDRY_ENDPOINT=$AI_FOUNDRY_ENDPOINT
 
 # Azure Function App Configuration

@@ -1,3 +1,7 @@
+# Other
+*.mp3
+*.m4a
+
 # Python
 __pycache__/
 *.py[cod]

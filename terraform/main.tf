@@ -41,22 +41,25 @@ resource "azurerm_resource_group" "example" {
   location = "WestUS3"
 
   tags = {
-    TerraformManaged = "true"
+    VideoSummarization = "true"
   }
 }
 
 # Create Storage Account
 resource "azurerm_storage_account" "example" {
-  name                     = "transcription${random_string.suffix.result}sa"
-  resource_group_name      = azurerm_resource_group.example.name
-  location                 = azurerm_resource_group.example.location
-  account_tier             = "Standard"
-  account_replication_type = "LRS"
-  account_kind             = "StorageV2"
+  name                          = "transcription${random_string.suffix.result}sa"
+  resource_group_name           = azurerm_resource_group.example.name
+  location                      = azurerm_resource_group.example.location
+  account_tier                  = "Standard"
+  account_replication_type      = "LRS"
+  account_kind                  = "StorageV2"
+  # Required for Speech Service destinationContainerUrl feature
+  # "The Storage account resource must allow all external traffic"
+  public_network_access_enabled = true
 
   tags = {
-    TerraformManaged = "true"
-    SecurityControl  = "Ignore"
+    VideoSummarization = "true"
+    SecurityControl    = "Ignore"
   }
 }
 
@@ -83,8 +86,8 @@ resource "azurerm_cognitive_account" "speech" {
   sku_name            = "S0"
 
   tags = {
-    TerraformManaged = "true"
-    SecurityControl  = "Ignore"
+    VideoSummarization = "true"
+    SecurityControl    = "Ignore"
   }
 }
 
@@ -104,20 +107,20 @@ resource "azurerm_cognitive_account" "ai_foundry" {
   }
 
   tags = {
-    TerraformManaged = "true"
-    SecurityControl  = "Ignore"
+    VideoSummarization = "true"
+    SecurityControl    = "Ignore"
   }
 }
 
-# Deploy GPT-4o-mini model to AI Foundry
-resource "azurerm_cognitive_deployment" "gpt4o_mini" {
-  name                 = "gpt-4o-mini"
+# Deploy GPT-5 model to AI Foundry
+resource "azurerm_cognitive_deployment" "gpt5" {
+  name                 = "gpt-5"
   cognitive_account_id = azurerm_cognitive_account.ai_foundry.id
 
   model {
     format  = "OpenAI"
-    name    = "gpt-4o-mini"
-    version = "2024-07-18"
+    name    = "gpt-5"
+    version = "2025-08-07"
   }
 
   sku {
@@ -161,7 +164,7 @@ resource "azurerm_log_analytics_workspace" "function_app" {
   retention_in_days   = 30
 
   tags = {
-    TerraformManaged = "true"
+    VideoSummarization = "true"
   }
 }
 
@@ -174,33 +177,35 @@ resource "azurerm_application_insights" "function_app" {
   application_type    = "web"
 
   tags = {
-    TerraformManaged = "true"
+    VideoSummarization = "true"
   }
 }
 
-# Create App Service Plan for Azure Functions
+# Create App Service Plan for Azure Functions (Premium Plan)
 resource "azurerm_service_plan" "function_app" {
   name                = "transcription${random_string.suffix.result}plan"
   location            = azurerm_resource_group.example.location
   resource_group_name = azurerm_resource_group.example.name
   os_type             = "Linux"
-  sku_name            = "Y1"
+  sku_name            = "EP1"  # Elastic Premium 1 (EP1)
 
   tags = {
-    TerraformManaged = "true"
+    VideoSummarization = "true"
   }
 }
 
 # Create Azure Function App
 resource "azurerm_linux_function_app" "transcription" {
-  name                       = "transcription${random_string.suffix.result}func"
-  location                   = azurerm_resource_group.example.location
-  resource_group_name        = azurerm_resource_group.example.name
-  service_plan_id            = azurerm_service_plan.function_app.id
-  storage_account_name       = azurerm_storage_account.example.name
-  storage_account_access_key = azurerm_storage_account.example.primary_access_key
+  name                             = "transcription${random_string.suffix.result}func"
+  location                         = azurerm_resource_group.example.location
+  resource_group_name              = azurerm_resource_group.example.name
+  service_plan_id                  = azurerm_service_plan.function_app.id
+  storage_account_name             = azurerm_storage_account.example.name
+  storage_account_access_key       = azurerm_storage_account.example.primary_access_key
+  functions_extension_version      = "~4"
 
   site_config {
+    elastic_instance_minimum = 1
     application_stack {
       python_version = "3.11"
     }
@@ -224,8 +229,22 @@ resource "azurerm_linux_function_app" "transcription" {
   }
 
   tags = {
-    TerraformManaged = "true"
+    VideoSummarization = "true"
   }
+}
+
+# Grant Function App managed identity permission to use AI Foundry
+resource "azurerm_role_assignment" "function_app_cognitive_services_user" {
+  scope                = azurerm_cognitive_account.ai_foundry.id
+  role_definition_name = "Cognitive Services User"
+  principal_id         = azurerm_linux_function_app.transcription.identity[0].principal_id
+}
+
+# Grant Function App managed identity permission to write files/assets to AI Foundry
+resource "azurerm_role_assignment" "function_app_cognitive_services_contributor" {
+  scope                = azurerm_cognitive_account.ai_foundry.id
+  role_definition_name = "Cognitive Services Contributor"
+  principal_id         = azurerm_linux_function_app.transcription.identity[0].principal_id
 }
 
 # Resource Group Name
@@ -244,6 +263,13 @@ output "storage_account" {
 output "storage_conn_string" {
   value       = azurerm_storage_account.example.primary_connection_string
   description = "The primary connection string for the storage account"
+  sensitive   = true
+}
+
+# Storage Account Key
+output "storage_account_key" {
+  value       = azurerm_storage_account.example.primary_access_key
+  description = "The primary access key for the storage account"
   sensitive   = true
 }
 
@@ -266,10 +292,16 @@ output "speech_endpoint" {
   description = "The endpoint for the Speech Service"
 }
 
-# AI Foundry Project Endpoint
+# AI Services Endpoint (for Speech, Vision, etc. - uses cognitiveservices.azure.com)
+output "ai_services_endpoint" {
+  value       = azurerm_cognitive_account.ai_foundry.endpoint
+  description = "The Cognitive Services endpoint for AI services (Speech, etc.)"
+}
+
+# AI Foundry Project Endpoint (for Agents - uses services.ai.azure.com)
 output "ai_foundry_endpoint" {
-  value       = "${azurerm_cognitive_account.ai_foundry.endpoint}api/projects/${azapi_resource.ai_foundry_project.name}"
-  description = "The endpoint for Azure AI Foundry Project"
+  value       = "https://${azurerm_cognitive_account.ai_foundry.name}.services.ai.azure.com/api/projects/${azapi_resource.ai_foundry_project.name}"
+  description = "The endpoint for Azure AI Foundry Project (Agents SDK)"
 }
 
 # AI Foundry Project ID

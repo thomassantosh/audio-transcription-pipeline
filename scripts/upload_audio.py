@@ -10,15 +10,54 @@ Example:
 
 import os
 import sys
+import time
 import argparse
 from azure.storage.blob import BlobServiceClient
 from dotenv import load_dotenv
 
 load_dotenv()
 
+# Supported audio formats for Azure Speech Service Batch Transcription
+SUPPORTED_FORMATS = {'.wav', '.mp3', '.ogg', '.opus', '.flac', '.amr', '.webm'}
+
+
+def create_progress_callback(file_size: int):
+    """Create a progress callback for blob upload."""
+    uploaded = {'bytes': 0}
+    
+    def progress_callback(current, total):
+        # Azure SDK passes (current_bytes, total_bytes)
+        bytes_transferred = current
+        if total and total > 0:
+            file_size_actual = total
+        else:
+            file_size_actual = file_size
+        
+        percent = (bytes_transferred / file_size_actual) * 100
+        bar_length = 40
+        filled = int(bar_length * bytes_transferred // file_size_actual)
+        bar = '█' * filled + '░' * (bar_length - filled)
+        mb_transferred = bytes_transferred / (1024 * 1024)
+        mb_total = file_size_actual / (1024 * 1024)
+        sys.stdout.write(f'\r  Uploading: |{bar}| {percent:.1f}% ({mb_transferred:.1f}/{mb_total:.1f} MB)')
+        sys.stdout.flush()
+        if bytes_transferred >= file_size_actual:
+            print()  # New line when complete
+    
+    return progress_callback
+
 
 def upload_audio(file_path: str, enable_diarization: bool = False, topic: str = "default"):
     """Upload audio file to Azure Blob Storage with metadata."""
+    
+    # Validate file format
+    file_ext = os.path.splitext(file_path)[1].lower()
+    if file_ext not in SUPPORTED_FORMATS:
+        raise ValueError(
+            f"Unsupported audio format: '{file_ext}'\n"
+            f"Supported formats: {', '.join(sorted(SUPPORTED_FORMATS))}\n"
+            f"Tip: Convert m4a to mp3 with: make convert-audio INPUT=file.m4a OUTPUT=file.mp3"
+        )
     
     storage_conn_string = os.getenv("STORAGE_CONNECTION_STRING")
     audio_container = os.getenv("AUDIO_CONTAINER", "audio")
@@ -44,12 +83,28 @@ def upload_audio(file_path: str, enable_diarization: bool = False, topic: str = 
         "topic": topic
     }
     
-    # Upload file
+    # Check if blob exists and delete it first to ensure clean state
+    if blob_client.exists():
+        print(f"Deleting existing blob to clear all metadata...")
+        blob_client.delete_blob()
+        time.sleep(5) # Wait for 5 seconds to propagate deletion before re-uploading
+    
+    # Get file size for progress tracking
+    file_size = os.path.getsize(file_path)
+    
+    # Upload file with progress callback
     print(f"Uploading {file_path} to {audio_container}/{blob_name}")
     print(f"Metadata: {metadata}")
     
+    progress_callback = create_progress_callback(file_size)
+    
     with open(file_path, "rb") as data:
-        blob_client.upload_blob(data, overwrite=True, metadata=metadata)
+        blob_client.upload_blob(
+            data, 
+            overwrite=True, 
+            metadata=metadata,
+            progress_hook=progress_callback
+        )
     
     print(f"✓ Upload complete: {blob_client.url}")
 
