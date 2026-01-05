@@ -1,17 +1,22 @@
-##@ "Infra Setup"
-init: ## Initialize Terraform with providers
+##@ "Terraform Setup"
+## Initialize Terraform with providers
+init:
 	cd terraform && terraform init
 
-validate: init ## Validate Terraform configuration
+## Validate Terraform configuration
+validate: init
 	cd terraform && terraform validate
 
-fmt: ## Format Terraform files
+## Format Terraform files
+fmt:
 	cd terraform && terraform fmt
 
-plan: ## Create Terraform execution plan
+## Create Terraform execution plan
+plan:
 	cd terraform && terraform plan -out=tfplan
 
-apply: ## Apply Terraform changes
+## Apply Terraform changes
+apply:
 	cd terraform && terraform apply tfplan
 
 deploy: ## Full deployment: clean, init, plan, and apply
@@ -24,25 +29,45 @@ get-output: ## Extract Terraform outputs and create .env file
 	rm -rf .env
 	./terraform/outputs.sh
 
-delete: ## Delete all Azure resource groups with TerraformManaged tag
-	@echo "Finding resource groups with TerraformManaged=true tag..."
-	@az group list --tag TerraformManaged=true --query "[].name" -o tsv | while read rg; do \
-		if [ -n "$$rg" ]; then \
-			echo "Deleting resource group: $$rg"; \
-			(az group delete --name "$$rg" --yes --no-wait 2>&1 | grep -v "Bad Request" || true) && \
-			echo "Deletion initiated for: $$rg"; \
-		fi; \
-	done
-	@echo "All deletions initiated. They will complete in the background."
+##@ "Deploy function app to infra"
+function-deploy: uv-sync ## Deploy function app to Azure
+	@which func > /dev/null || (echo "Error: Azure Functions Core Tools not installed. Install with: npm install -g azure-functions-core-tools@4" && exit 1)
+	@if [ -z "$$(grep FUNCTION_APP_NAME .env 2>/dev/null)" ]; then \
+		echo "Error: .env file not found. Run 'make get-output' first"; \
+		exit 1; \
+	fi
+	@FUNC_APP=$$(grep FUNCTION_APP_NAME .env | cut -d'=' -f2); \
+	echo "Deploying to Function App: $$FUNC_APP"; \
+	cd function_app && func azure functionapp publish $$FUNC_APP --python
 
-clean: ## Clean Terraform state and cache files
-	rm -rf terraform/.terraform
-	rm -f terraform/.terraform.lock.hcl
-	rm -f terraform/terraform.tfstate
-	rm -f terraform/terraform.tfstate.backup
-	rm -f terraform/tfplan
+##@ "Upload Audio & Query Agent"
+# Example: make upload-audio FILE=meeting.mp3 DIARIZATION=true TOPIC=team-meeting
+upload-audio: uv-sync ## Upload audio file (Usage: make upload-audio FILE=audio.mp3 [DIARIZATION=true] [TOPIC=mytopic])
+	@if [ -z "$(FILE)" ]; then \
+		echo "Error: FILE parameter required. Usage: make upload-audio FILE=audio.mp3"; \
+		exit 1; \
+	fi
+	@DIARIZATION_FLAG=""; \
+	if [ "$(DIARIZATION)" = "true" ]; then \
+		DIARIZATION_FLAG="--diarization"; \
+	fi; \
+	TOPIC_FLAG=""; \
+	if [ -n "$(TOPIC)" ]; then \
+		TOPIC_FLAG="--topic $(TOPIC)"; \
+	fi; \
+	uv run scripts/upload_audio.py $(FILE) $$DIARIZATION_FLAG $$TOPIC_FLAG
 
-##@ "Workflow Setup"
+
+##@ "Run Agent"
+query-agent: uv-sync ## Query AI agent about transcripts (Usage: make query-agent TOPIC=mytopic QUESTION="What was discussed?")
+	@if [ -z "$(TOPIC)" ] || [ -z "$(QUESTION)" ]; then \
+		echo "Error: TOPIC and QUESTION parameters required."; \
+		echo "Usage: make query-agent TOPIC=mytopic QUESTION=\"What was discussed?\""; \
+		exit 1; \
+	fi
+	@uv run scripts/query_agent.py $(TOPIC) "$(QUESTION)"
+
+##@ "Local function app setup & testing"
 uv-sync: ## Sync Python dependencies using uv
 	uv sync --locked
 
@@ -69,41 +94,25 @@ function-local: update-local-settings ## Run Azure Functions locally
 	@cd function_app && PATH="$$PWD/.bin:$$PATH" func start
 	@rm -f function_app/.bin/python3
 
-function-deploy: uv-sync ## Deploy function app to Azure
-	@which func > /dev/null || (echo "Error: Azure Functions Core Tools not installed. Install with: npm install -g azure-functions-core-tools@4" && exit 1)
-	@if [ -z "$$(grep FUNCTION_APP_NAME .env 2>/dev/null)" ]; then \
-		echo "Error: .env file not found. Run 'make get-output' first"; \
-		exit 1; \
-	fi
-	@FUNC_APP=$$(grep FUNCTION_APP_NAME .env | cut -d'=' -f2); \
-	echo "Deploying to Function App: $$FUNC_APP"; \
-	cd function_app && func azure functionapp publish $$FUNC_APP --python
 
-# Example: make upload-audio FILE=meeting.mp3 DIARIZATION=true TOPIC=team-meeting
-upload-audio: uv-sync ## Upload audio file (Usage: make upload-audio FILE=audio.mp3 [DIARIZATION=true] [TOPIC=mytopic])
-	@if [ -z "$(FILE)" ]; then \
-		echo "Error: FILE parameter required. Usage: make upload-audio FILE=audio.mp3"; \
-		exit 1; \
-	fi
-	@DIARIZATION_FLAG=""; \
-	if [ "$(DIARIZATION)" = "true" ]; then \
-		DIARIZATION_FLAG="--diarization"; \
-	fi; \
-	TOPIC_FLAG=""; \
-	if [ -n "$(TOPIC)" ]; then \
-		TOPIC_FLAG="--topic $(TOPIC)"; \
-	fi; \
-	uv run scripts/upload_audio.py $(FILE) $$DIARIZATION_FLAG $$TOPIC_FLAG
+##@ "Terraform cleanup"
+delete: ## Delete all Azure resource groups with TerraformManaged tag
+	@echo "Finding resource groups with TerraformManaged=true tag..."
+	@az group list --tag TerraformManaged=true --query "[].name" -o tsv | while read rg; do \
+		if [ -n "$$rg" ]; then \
+			echo "Deleting resource group: $$rg"; \
+			(az group delete --name "$$rg" --yes --no-wait 2>&1 | grep -v "Bad Request" || true) && \
+			echo "Deletion initiated for: $$rg"; \
+		fi; \
+	done
+	@echo "All deletions initiated. They will complete in the background."
 
-
-##@ "Run Agent"
-query-agent: uv-sync ## Query AI agent about transcripts (Usage: make query-agent TOPIC=mytopic QUESTION="What was discussed?")
-	@if [ -z "$(TOPIC)" ] || [ -z "$(QUESTION)" ]; then \
-		echo "Error: TOPIC and QUESTION parameters required."; \
-		echo "Usage: make query-agent TOPIC=mytopic QUESTION=\"What was discussed?\""; \
-		exit 1; \
-	fi
-	@uv run scripts/query_agent.py $(TOPIC) "$(QUESTION)"
+clean: ## Clean Terraform state and cache files
+	rm -rf terraform/.terraform
+	rm -f terraform/.terraform.lock.hcl
+	rm -f terraform/terraform.tfstate
+	rm -f terraform/terraform.tfstate.backup
+	rm -f terraform/tfplan
 
 ##@ Help
 help: ## Show this help message (grouped by sections)
