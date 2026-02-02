@@ -1,7 +1,9 @@
 # Audio Transcription Pipeline
-This project provides an automated audio transcription pipeline using Azure services. Upload audio files to Azure Blob Storage,
-automatically transcribe them using Azure Speech Service with optional speaker diarization, and load transcripts into Azure AI
-Foundry agents for interactive Q&A. Audio files are retrieved using youtube-dl, in an m4a format.
+This project provides an automated audio transcription pipeline using Azure services. Audio files are retrieved using youtube-dl, in an m4a format.
+
+## Scenarios
+- Upload audio files to Azure Blob Storage, automatically transcribe them using Azure Speech Service with optional speaker diarization, and load transcripts into Azure AI Foundry agents for interactive Q&A.
+- Get transcripts and then use those to populate the Researcher Agent to get a comprehensive overview.
 
 ## How It Works
 
