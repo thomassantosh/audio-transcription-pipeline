@@ -29,15 +29,11 @@ apply: ## [util] Apply Terraform changes
 	cd terraform && terraform apply tfplan
 
 deploy: ## [core] Full deployment: clean, init, plan, and apply
+	rm -rf .env
 	make clean
 	make init
 	make plan
 	make apply
-	make get-output
-
-get-output: ## [util] Extract Terraform outputs and create .env file
-	rm -rf .env
-	./terraform/outputs.sh
 
 clean-containers: ## [util] Delete all blobs in audio and transcripts containers
 	@echo "Cleaning audio and transcripts containers..."
@@ -86,7 +82,7 @@ update-local-settings: ## [util] Update local.settings.json with values from .en
 	mv local.settings.json.tmp local.settings.json
 	@echo "✓ local.settings.json updated successfully"
 
-function-local: update-local-settings clean-containers ## [core] Run Azure Functions locally
+function-local: update-local-settings clean-containers ## [util] Run Azure Functions locally
 	@echo "Installing dependencies for local Functions runtime..."
 	@rm -rf function_app/.python_packages
 	@cd function_app && python3.11 -m pip install -r requirements.txt -t .python_packages --quiet
