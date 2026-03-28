@@ -23,7 +23,7 @@ validate: init ## [util] Validate Terraform configuration
 	cd terraform && terraform validate
 
 plan: ## [util] Create Terraform execution plan
-	cd terraform && terraform plan -out=tfplan
+	cd terraform && terraform plan -var="subscription_id=$$(az account show --query id -o tsv)" -out=tfplan
 
 apply: ## [util] Apply Terraform changes
 	cd terraform && terraform apply tfplan

@@ -20,13 +20,18 @@ terraform {
   }
 }
 
+variable "subscription_id" {
+  description = "Azure subscription ID (derived from Azure CLI context)"
+  type        = string
+}
+
 provider "azurerm" {
   features {}
-  subscription_id = "REDACTED"
+  subscription_id = var.subscription_id
 }
 
 provider "azapi" {
-  subscription_id = "REDACTED"
+  subscription_id = var.subscription_id
 }
 
 # Generate a random string for unique naming
