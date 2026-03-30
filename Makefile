@@ -48,12 +48,12 @@ clean-containers: ## [util] Delete all blobs in audio and transcripts containers
 	az storage blob delete-batch --delete-snapshots include --source transcripts --connection-string "$$STORAGE_CONN_STRING" 2>/dev/null || echo "Transcripts container is empty or already clean"; \
 	echo "✓ Containers cleaned successfully"
 
-delete: clean-containers ## [core] Delete all Azure resource groups with VideoSummarization tag
+delete: ## [core] Delete all Azure resource groups with VideoSummarization tag
 	@echo "Finding resource groups with VideoSummarization=true tag..."
 	@az group list --tag VideoSummarization=true --query "[].name" -o tsv | while read rg; do \
 		if [ -n "$$rg" ]; then \
 			echo "Deleting resource group: $$rg"; \
-			(az group delete --name "$$rg" --yes --no-wait 2>&1 | grep -v "Bad Request" || true) && \
+			az group delete --name "$$rg" --yes --no-wait && \
 			echo "Deletion initiated for: $$rg"; \
 		fi; \
 	done
