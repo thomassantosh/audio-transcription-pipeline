@@ -207,6 +207,40 @@ show-transcription: ## [util] Show transcription details from Speech API (Usage:
 
 
 ##@ Upload Audio & Query Agent
+process-audio: uv-sync ## [core] Convert & upload audio in one step (Usage: make process-audio FILE=recording.m4a TOPIC=standup)
+	@if [ -z "$(FILE)" ] || [ -z "$(TOPIC)" ]; then \
+		echo "Error: FILE and TOPIC parameters are required."; \
+		echo "Usage: make process-audio FILE=recording.m4a TOPIC=standup"; \
+		exit 1; \
+	fi
+	@if echo "$(TOPIC)" | grep -q ' '; then \
+		echo "Error: TOPIC must be a single word (no spaces). Got: '$(TOPIC)'"; \
+		echo "Usage: make process-audio FILE=recording.m4a TOPIC=standup"; \
+		exit 1; \
+	fi
+	@if [ ! -f "$(FILE)" ]; then \
+		echo "Error: File '$(FILE)' not found."; \
+		exit 1; \
+	fi
+	@EXT=$$(echo "$(FILE)" | sed 's/.*\.//' | tr '[:upper:]' '[:lower:]'); \
+	if [ "$$EXT" = "mp3" ]; then \
+		echo "File is already MP3, skipping conversion..."; \
+		MP3_FILE="$(FILE)"; \
+	else \
+		which ffmpeg > /dev/null || (echo "Error: ffmpeg not installed. Install with: brew install ffmpeg" && exit 1); \
+		MP3_FILE="$$(echo "$(FILE)" | sed 's/\.[^.]*$$//').mp3"; \
+		echo "Converting $(FILE) to $$MP3_FILE..."; \
+		ffmpeg -i "$(FILE)" -vn -acodec libmp3lame -q:a 2 "$$MP3_FILE" -y || (echo "Error: Conversion failed."; exit 1); \
+		echo "✓ Converted $(FILE) to $$MP3_FILE"; \
+	fi; \
+	echo "Uploading $$MP3_FILE with topic '$(TOPIC)'..."; \
+	DIARIZATION_FLAG=""; \
+	if [ "$(DIARIZATION)" = "true" ]; then \
+		DIARIZATION_FLAG="--diarization"; \
+	fi; \
+	uv run scripts/upload_audio.py "$$MP3_FILE" --topic "$(TOPIC)" $$DIARIZATION_FLAG; \
+	echo "✓ Processing complete for topic '$(TOPIC)'"
+
 # Convert m4a to mp3 (Azure Speech Service doesn't support m4a)
 convert-audio: ## [util] Convert audio to MP3 (Usage: make convert-audio INPUT=file.m4a OUTPUT=file.mp3)
 	@if [ -z "$(INPUT)" ] || [ -z "$(OUTPUT)" ]; then \
@@ -218,7 +252,7 @@ convert-audio: ## [util] Convert audio to MP3 (Usage: make convert-audio INPUT=f
 	ffmpeg -i $(INPUT) -vn -acodec libmp3lame -q:a 2 $(OUTPUT)
 	@echo "✓ Converted $(INPUT) to $(OUTPUT)"
 
-upload-audio: uv-sync ## [core] Upload audio file (Usage: make upload-audio FILE=audio.mp3 [DIARIZATION=true] [TOPIC=mytopic])
+upload-audio: uv-sync ## [util] Upload audio file (Usage: make upload-audio FILE=audio.mp3 [DIARIZATION=true] [TOPIC=mytopic])
 	@if [ -z "$(FILE)" ]; then \
 		echo "Error: FILE parameter required. Usage: make upload-audio FILE=audio.mp3"; \
 		exit 1; \
@@ -233,6 +267,11 @@ upload-audio: uv-sync ## [core] Upload audio file (Usage: make upload-audio FILE
 	fi; \
 	uv run scripts/upload_audio.py $(FILE) $$DIARIZATION_FLAG $$TOPIC_FLAG
 
+# Sample QUESTION for detailed narrative summary:
+#   make query-agent TOPIC=standup QUESTION="Can you describe the narrative logic of this transcript \
+#     in the order ideas are presented. I'd like to follow through but have key points identified, \
+#     with supporting detail. Be exhaustive, it's OK to be verbose where needed. But I want to read \
+#     this and ensure the key points are captured."
 query-agent: uv-sync ## [core] Query AI agent about transcripts (Usage: make query-agent TOPIC=mytopic QUESTION="What was discussed?")
 	@if [ -z "$(TOPIC)" ] || [ -z "$(QUESTION)" ]; then \
 		echo "Error: TOPIC and QUESTION parameters required."; \
