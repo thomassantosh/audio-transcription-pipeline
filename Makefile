@@ -268,10 +268,7 @@ upload-audio: uv-sync ## [util] Upload audio file (Usage: make upload-audio FILE
 	uv run scripts/upload_audio.py $(FILE) $$DIARIZATION_FLAG $$TOPIC_FLAG
 
 # Sample QUESTION for detailed narrative summary:
-#   make query-agent TOPIC=standup QUESTION="Can you describe the narrative logic of this transcript \
-#     in the order ideas are presented. I'd like to follow through but have key points identified, \
-#     with supporting detail. Be exhaustive, it's OK to be verbose where needed. But I want to read \
-#     this and ensure the key points are captured."
+# make query-agent TOPIC=standup QUESTION="Can you describe the narrative logic of this transcript in the order ideas are presented. I'd like to follow through but have key points identified, with supporting detail. Be exhaustive, it's OK to be verbose where needed. But I want to read  this and ensure the key points are captured."
 query-agent: uv-sync ## [core] Query AI agent about transcripts (Usage: make query-agent TOPIC=mytopic QUESTION="What was discussed?")
 	@if [ -z "$(TOPIC)" ] || [ -z "$(QUESTION)" ]; then \
 		echo "Error: TOPIC and QUESTION parameters required."; \
