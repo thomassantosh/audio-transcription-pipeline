@@ -67,23 +67,23 @@ def query_agent(topic: str, question: str):
     print(f"\nQuestion: {question}")
     print("\nThinking...\n")
     
-    thread = project_client.agents.create_thread()
+    thread = project_client.agents.threads.create()
     
     # Add message to thread
-    project_client.agents.create_message(
+    project_client.agents.messages.create(
         thread_id=thread.id,
         role="user",
         content=question
     )
     
     # Run the agent
-    run = project_client.agents.create_and_process_run(
+    run = project_client.agents.runs.create_and_process(
         thread_id=thread.id,
-        assistant_id=agent.id
+        agent_id=agent.id
     )
     
     # Get messages
-    messages = project_client.agents.list_messages(thread_id=thread.id)
+    messages = project_client.agents.messages.list(thread_id=thread.id)
     
     # Display response (most recent assistant message)
     for message in messages:
