@@ -27,6 +27,7 @@ This project provides an automated audio transcription pipeline using Azure serv
 - **Azure Deployment**: Uses `destinationContainerUrl` - Speech Service writes JSON directly to the transcripts container
 - The blob trigger parses the JSON, extracts the transcript text, and saves a `.txt` file with the original audio filename
 - The `.txt` file is then uploaded to Azure AI Foundry for agent-based Q&A
+- For individual audio/videos, you can always use `youtube-transcript-api`
 
 ## Notes
 - Azure Speech Service supports: WAV MP3 OGG/OPUS FLAC AMR WEBM (NOT m4a - use `make convert-audio`)
