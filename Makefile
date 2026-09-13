@@ -238,7 +238,7 @@ process-audio: uv-sync ## [core] Convert & upload audio in one step (Usage: make
 	if [ "$(DIARIZATION)" = "true" ]; then \
 		DIARIZATION_FLAG="--diarization"; \
 	fi; \
-	uv run scripts/upload_audio.py "$$MP3_FILE" --topic "$(TOPIC)" $$DIARIZATION_FLAG; \
+	uv run scripts/upload_audio.py "$$MP3_FILE" --topic "$(TOPIC)" $$DIARIZATION_FLAG && \
 	echo "✓ Processing complete for topic '$(TOPIC)'"
 
 # Convert m4a to mp3 (Azure Speech Service doesn't support m4a)

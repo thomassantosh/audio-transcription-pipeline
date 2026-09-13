@@ -34,6 +34,8 @@ This project provides an automated audio transcription pipeline using Azure serv
 - Transcripts are saved as `.txt` files with the same name as the source audio file.
 - **diarization**: `true` enables speaker separation, `false` for single speaker
 - **topic**: Groups transcripts under the same AI agent (e.g., "project-planning")
+- Uploads larger than 4 MiB use 4 MiB blocks with the Azure SDK's retry policy and a 120-second client-side connection timeout to accommodate slower connections.
+- `make process-audio` stops on upload failure. Its completion message confirms conversion/upload only, not completion of the asynchronous transcription.
 
 ## Quick Start
 

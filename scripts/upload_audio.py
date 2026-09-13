@@ -66,7 +66,12 @@ def upload_audio(file_path: str, enable_diarization: bool = False, topic: str = 
         raise ValueError("STORAGE_CONNECTION_STRING not found in environment")
     
     # Initialize blob service client
-    blob_service_client = BlobServiceClient.from_connection_string(storage_conn_string)
+    blob_service_client = BlobServiceClient.from_connection_string(
+        storage_conn_string,
+        max_single_put_size=4 * 1024 * 1024,
+        max_block_size=4 * 1024 * 1024,
+        connection_timeout=120,
+    )
     
     # Get blob name from file path
     blob_name = os.path.basename(file_path)
