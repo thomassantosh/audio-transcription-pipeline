@@ -170,6 +170,49 @@ def get_transcription_status(transcription_id: str) -> dict:
     resp.raise_for_status()
     return resp.json()
 
+def format_timestamp(seconds: float) -> str:
+    """Format a number of seconds as an HH:MM:SS timestamp."""
+    total_seconds = int(seconds)
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, secs = divmod(remainder, 60)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+
+def build_timestamped_transcript(transcription_result: dict) -> str:
+    """
+    Build a timestamped plain-text transcript from a Speech Service batch
+    transcription result.
+
+    Uses the per-phrase timing in ``recognizedPhrases`` to prefix each phrase
+    with its start time (and a speaker label when diarization is enabled):
+
+        [HH:MM:SS] Speaker 1: <phrase text>
+        [HH:MM:SS] <phrase text>   # when no speaker information is present
+
+    Returns an empty string when the result contains no usable phrases.
+    """
+    lines = []
+    for phrase in transcription_result.get("recognizedPhrases", []):
+        if phrase.get("recognitionStatus", "Success") != "Success":
+            continue
+
+        n_best = phrase.get("nBest") or []
+        display = n_best[0].get("display", "").strip() if n_best else ""
+        if not display:
+            continue
+
+        offset_ticks = phrase.get("offsetInTicks")
+        # Ticks are 100-nanosecond units; 10,000,000 ticks == 1 second.
+        offset_seconds = offset_ticks / 10_000_000 if offset_ticks is not None else 0
+        timestamp = format_timestamp(offset_seconds)
+
+        speaker = phrase.get("speaker")
+        if speaker is not None:
+            lines.append(f"[{timestamp}] Speaker {speaker}: {display}")
+        else:
+            lines.append(f"[{timestamp}] {display}")
+
+    return "\n".join(lines)
+
 def handle_transcription_completed(
     transcription_id: str,
     correlation_id: str,
@@ -192,6 +235,7 @@ def handle_transcription_completed(
     files_data = files_response.json()
 
     transcript_text = None
+    timestamped_text = None
 
     for file_info in files_data.get("values", []):
         if file_info.get("kind") == "Transcription":
@@ -204,6 +248,8 @@ def handle_transcription_completed(
 
             if combined_phrases:
                 transcript_text = combined_phrases[0].get("display", "")
+
+            timestamped_text = build_timestamped_transcript(transcription_result)
             break
 
     if not transcript_text:
@@ -257,6 +303,25 @@ def handle_transcription_completed(
         f"✅ Transcript saved: {transcript_filename}",
         correlation_id
     )
+
+    # ---- Save timestamped transcript artifact ----
+    if timestamped_text:
+        timestamped_filename = blob_name.rsplit(".", 1)[0] + ".timestamps.txt"
+        timestamped_blob_client = blob_service_client.get_blob_client(
+            container=TRANSCRIPTS_CONTAINER,
+            blob=timestamped_filename
+        )
+        timestamped_blob_client.upload_blob(
+            timestamped_text,
+            overwrite=True,
+            metadata=transcript_metadata
+        )
+        log_with_correlation(
+            logger,
+            "info",
+            f"✅ Timestamped transcript saved: {timestamped_filename}",
+            correlation_id
+        )
 
 def handle_transcription_failed(
     transcription_id: str,
@@ -631,10 +696,17 @@ def transcript_blob_trigger(transcriptBlob: func.InputStream, context: func.Cont
             f"Skipping report file: {blob_name}", 
             correlation_id)
         return
+
+    # Skip derived timestamped transcript artifacts (not for agent ingestion)
+    if blob_name.endswith(".timestamps.txt"):
+        log_with_correlation(logger, "info",
+            f"Skipping timestamped transcript artifact: {blob_name}",
+            correlation_id)
+        return
     
     try:
         # Read blob content
-        raw_content = transcriptBlob.read().decode('utf-8')
+        raw_content = transcriptBlob.read().decode('utf-8-sig')
         
         # Determine if this is JSON (from Speech Service) or plain text (from local dev)
         transcript_text = None
@@ -710,6 +782,28 @@ def transcript_blob_trigger(transcriptBlob: func.InputStream, context: func.Cont
                     log_with_correlation(logger, "info", 
                         f"Saved transcript as: {txt_filename}", 
                         correlation_id)
+
+                    # Also save a timestamped transcript artifact
+                    timestamped_text = build_timestamped_transcript(transcription_data)
+                    if timestamped_text:
+                        ts_filename = audio_file_name.rsplit(".", 1)[0] + ".timestamps.txt"
+                        ts_blob_client = blob_service_client.get_blob_client(
+                            container=TRANSCRIPTS_CONTAINER,
+                            blob=ts_filename
+                        )
+                        ts_blob_client.upload_blob(
+                            timestamped_text,
+                            overwrite=True,
+                            metadata={
+                                "topic": topic,
+                                "source_audio": audio_file_name,
+                                "source_json": blob_name,
+                                "correlation_id": correlation_id
+                            }
+                        )
+                        log_with_correlation(logger, "info",
+                            f"Saved timestamped transcript as: {ts_filename}",
+                            correlation_id)
                     
             except json.JSONDecodeError as e:
                 log_with_correlation(logger, "error", 

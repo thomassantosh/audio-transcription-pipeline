@@ -26,12 +26,14 @@ This project provides an automated audio transcription pipeline using Azure serv
 - **Local Development**: Uses polling to wait for transcription completion
 - **Azure Deployment**: Uses `destinationContainerUrl` - Speech Service writes JSON directly to the transcripts container
 - The blob trigger parses the JSON, extracts the transcript text, and saves a `.txt` file with the original audio filename
-- The `.txt` file is then uploaded to Azure AI Foundry for agent-based Q&A
+- Alongside the plain `.txt`, a `.timestamps.txt` file is saved with per-phrase timestamps (`[HH:MM:SS]`) and speaker labels when diarization is enabled
+- The `.txt` file is then uploaded to Azure AI Foundry for agent-based Q&A (the derived `.timestamps.txt` artifact is skipped)
 - For individual audio/videos, you can always use `youtube-transcript-api`
 
 ## Notes
 - Azure Speech Service supports: WAV MP3 OGG/OPUS FLAC AMR WEBM (NOT m4a - use `make convert-audio`)
 - Transcripts are saved as `.txt` files with the same name as the source audio file.
+- A companion `.timestamps.txt` artifact is also produced with `[HH:MM:SS]` timestamps per phrase (plus speaker labels when diarized). Download it straight from the transcripts container with `make download-transcript NAME=<file>.timestamps.txt`. (You can also re-derive it from the Speech API with `make fetch-timestamps ID=<id> NAME=output.txt`, but that depends on the Speech Service content URL still being retrievable; the container blob is the reliable source.)
 - **diarization**: `true` enables speaker separation, `false` for single speaker
 - **topic**: Groups transcripts under the same AI agent (e.g., "project-planning")
 - Uploads larger than 4 MiB use 4 MiB blocks with the Azure SDK's retry policy and a 120-second client-side connection timeout to accommodate slower connections.

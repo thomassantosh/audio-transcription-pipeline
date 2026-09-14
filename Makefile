@@ -123,8 +123,52 @@ fetch-transcription: ## [util] Download transcription locally (Usage: make fetch
 		-H "Ocp-Apim-Subscription-Key: $${SPEECH_KEY}" | \
 		python3 -c "import sys,json; files=json.load(sys.stdin)['values']; print(next(f['links']['contentUrl'] for f in files if f['kind']=='Transcription'))"); \
 	echo "Downloading transcript..."; \
-	curl -s "$$CONTENT_URL" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['combinedRecognizedPhrases'][0]['display'])" > $(NAME); \
+	curl -s "$$CONTENT_URL" | python3 -c "import sys,json; d=json.loads(sys.stdin.buffer.read().decode('utf-8-sig')); print(d['combinedRecognizedPhrases'][0]['display'])" > $(NAME); \
 	echo "✓ Transcription saved to $(NAME)"
+
+# Fetch transcription with per-phrase timestamps (and speaker labels when diarized)
+# Checks status first, exits if still running, downloads when complete
+fetch-timestamps: ## [util] Download timestamped transcription (Usage: make fetch-timestamps ID=<id> NAME=output.txt)
+	@if [ -z "$(ID)" ] || [ -z "$(NAME)" ]; then \
+		echo "Error: ID and NAME parameters required."; \
+		echo "Usage: make fetch-timestamps ID=<transcription-id> NAME=output.txt"; \
+		echo "Find the transcription ID with: make show-audio-metadata NAME=<audio-file>"; \
+		exit 1; \
+	fi
+	@SPEECH_KEY=$$(grep SPEECH_KEY .env | cut -d'=' -f2); \
+	SPEECH_REGION=$$(grep SPEECH_REGION .env | cut -d'=' -f2); \
+	echo "Checking transcription status..."; \
+	STATUS=$$(curl -s -X GET "https://$${SPEECH_REGION}.api.cognitive.microsoft.com/speechtotext/v3.2/transcriptions/$(ID)" \
+		-H "Ocp-Apim-Subscription-Key: $${SPEECH_KEY}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status','Unknown'))"); \
+	echo "Status: $$STATUS"; \
+	if [ "$$STATUS" = "Running" ] || [ "$$STATUS" = "NotStarted" ]; then \
+		echo "⏳ Transcription still in progress. Try again later."; \
+		exit 0; \
+	elif [ "$$STATUS" = "Failed" ]; then \
+		echo "❌ Transcription failed. Check Azure portal for details."; \
+		exit 1; \
+	elif [ "$$STATUS" != "Succeeded" ]; then \
+		echo "❌ Unknown status: $$STATUS"; \
+		exit 1; \
+	fi; \
+	echo "Fetching transcription files..."; \
+	CONTENT_URL=$$(curl -s -X GET "https://$${SPEECH_REGION}.api.cognitive.microsoft.com/speechtotext/v3.2/transcriptions/$(ID)/files" \
+		-H "Ocp-Apim-Subscription-Key: $${SPEECH_KEY}" | \
+		python3 -c "import sys,json; files=json.load(sys.stdin)['values']; print(next(f['links']['contentUrl'] for f in files if f['kind']=='Transcription'))"); \
+	if [ -z "$$CONTENT_URL" ]; then \
+		echo "❌ Could not find a transcription content file for ID $(ID)."; \
+		exit 1; \
+	fi; \
+	echo "Downloading timestamped transcript..."; \
+	TMP_JSON=$$(mktemp); \
+	trap 'rm -f "$$TMP_JSON"' EXIT; \
+	curl -sf "$$CONTENT_URL" -o "$$TMP_JSON" || { echo "❌ Failed to download transcription content."; exit 1; }; \
+	if [ ! -s "$$TMP_JSON" ]; then \
+		echo "❌ Downloaded transcription content was empty (the content SAS URL may have expired). Try again."; \
+		exit 1; \
+	fi; \
+	python3 scripts/build_timestamps.py "$$TMP_JSON" > $(NAME) || { echo "❌ Failed to build timestamped transcript."; exit 1; }; \
+	echo "✓ Timestamped transcription saved to $(NAME)"
 
 # Once the application is live, use the Log Stream to see continuous logs (Hit 'Clear' to checkpoint)
 function-deploy: ## [core] Deploy function app to Azure
@@ -174,8 +218,19 @@ function-logs: ## [util] Stream function app deployment logs
 
 # List blobs in audio container
 list-audio: ## [util] List audio files in blob storage
+	@if [ ! -f .env ]; then \
+		echo "Error: .env file not found. Run 'make get-output' first"; \
+		exit 1; \
+	fi
 	@CONN_STRING=$$(grep STORAGE_CONNECTION_STRING .env | cut -d'=' -f2-); \
-	az storage blob list --container-name audio --connection-string "$$CONN_STRING" --output table
+	COUNT=$$(az storage blob list --container-name audio --connection-string "$$CONN_STRING" --query "length(@)" -o tsv 2>/dev/null); \
+	if [ -z "$$COUNT" ] || [ "$$COUNT" = "0" ]; then \
+		echo "📭 No audio files found in the 'audio' container yet."; \
+		echo "   → Upload one with: make process-audio FILE=<file> TOPIC=<topic>"; \
+	else \
+		echo "🎵 Found $$COUNT audio file(s) in the 'audio' container:"; \
+		az storage blob list --container-name audio --connection-string "$$CONN_STRING" --output table; \
+	fi
 
 # Show metadata for a specific audio blob (includes transcription_id)
 show-audio-metadata: ## [util] Show audio blob metadata (Usage: make show-audio-metadata NAME=file.mp3)
@@ -189,8 +244,44 @@ show-audio-metadata: ## [util] Show audio blob metadata (Usage: make show-audio-
 
 # List blobs in transcripts container
 list-transcripts: ## [util] List transcript files in blob storage
+	@if [ ! -f .env ]; then \
+		echo "Error: .env file not found. Run 'make get-output' first"; \
+		exit 1; \
+	fi
 	@CONN_STRING=$$(grep STORAGE_CONNECTION_STRING .env | cut -d'=' -f2-); \
-	az storage blob list --container-name transcripts --connection-string "$$CONN_STRING" --output table
+	COUNT=$$(az storage blob list --container-name transcripts --connection-string "$$CONN_STRING" --query "length(@)" -o tsv 2>/dev/null); \
+	if [ -z "$$COUNT" ] || [ "$$COUNT" = "0" ]; then \
+		echo "📭 No transcripts found in the 'transcripts' container yet."; \
+		echo "   → Upload audio with: make process-audio FILE=<file> TOPIC=<topic>"; \
+		echo "   → Transcription runs asynchronously, so allow a few minutes after upload before checking again."; \
+	else \
+		echo "📄 Found $$COUNT transcript blob(s) in the 'transcripts' container:"; \
+		echo "   (.txt = full text, .timestamps.txt = timestamped, .json = raw Speech Service output)"; \
+		az storage blob list --container-name transcripts --connection-string "$$CONN_STRING" --output table; \
+	fi
+
+# Download a transcript blob from the transcripts container to a local file
+download-transcript: ## [util] Download a transcript blob (Usage: make download-transcript NAME=a365.timestamps.txt [OUT=local.txt])
+	@if [ ! -f .env ]; then \
+		echo "Error: .env file not found. Run 'make get-output' first"; \
+		exit 1; \
+	fi
+	@if [ -z "$(NAME)" ]; then \
+		echo "Error: NAME parameter required."; \
+		echo "Usage: make download-transcript NAME=a365.timestamps.txt [OUT=local.txt]"; \
+		echo "List available blobs with: make list-transcripts"; \
+		exit 1; \
+	fi
+	@CONN_STRING=$$(grep STORAGE_CONNECTION_STRING .env | cut -d'=' -f2-); \
+	OUT="$${OUT:-$(NAME)}"; \
+	if ! az storage blob exists --container-name transcripts --name "$(NAME)" --connection-string "$$CONN_STRING" --query exists -o tsv 2>/dev/null | grep -q true; then \
+		echo "❌ Blob '$(NAME)' not found in the 'transcripts' container."; \
+		echo "   → Run 'make list-transcripts' to see available files."; \
+		exit 1; \
+	fi; \
+	az storage blob download --container-name transcripts --name "$(NAME)" --file "$$OUT" \
+		--connection-string "$$CONN_STRING" --no-progress --output none && \
+	echo "✓ Downloaded '$(NAME)' to $$OUT"
 
 # Show detailed transcription info from Speech Service API
 show-transcription: ## [util] Show transcription details from Speech API (Usage: make show-transcription ID=<transcription-id>)
